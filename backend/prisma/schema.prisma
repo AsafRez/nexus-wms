@@ -1,0 +1,120 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Business {
+  id         String      @id @default(uuid())
+  name       String
+  code       String      @unique
+  industry   String      @default("General Logistics")
+  isActive   Boolean     @default(true)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  users      User[]
+  warehouses Warehouse[]
+  products   Product[]   // Business-level SKU catalog
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  fullName     String
+  role         String   @default("ADMIN") // ADMIN | MANAGER | OPERATOR
+  businessId   String
+  business     Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Warehouse {
+  id            String            @id @default(uuid())
+  businessId    String
+  business      Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name          String
+  code          String
+  city          String
+  street        String
+  country       String?           @default("Israel")
+  type          String            @default("STANDARD") // STANDARD | COLD_STORAGE | FULFILLMENT
+  rows          Int               @default(10)         // 2D Matrix row count
+  cols          Int               @default(10)         // 2D Matrix column count
+  totalCapacity Int               // rows * cols
+  usedCapacity  Int               @default(0)          // Occupied matrix cells count
+  totalItems    Int               @default(0)          // Live counter of items stored in matrix
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  locations     StorageLocation[] // 2D Matrix [row][col] storage cells
+  itemInventory ItemInventory[]   // Current SKU inventory held directly in this warehouse
+  movements     StockMovement[]
+
+  @@unique([businessId, code])
+}
+
+model StorageLocation {
+  id           String    @id @default(uuid())
+  warehouseId  String
+  warehouse    Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  productId    String?   // 1 product type per cell (null when cell is empty)
+  product      Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  row          Int       // 0-based matrix row index
+  col          Int       // 0-based matrix column index
+  code         String    // e.g. A-01 (Row A, Col 01)
+  currentItems Int       @default(0) // Live counter of items currently in this cell
+  maxUnits     Int       @default(100)
+  isOccupied   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([warehouseId, row, col])
+  @@unique([warehouseId, code])
+}
+
+model Product {
+  id            String            @id @default(uuid())
+  businessId    String
+  business      Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sku           String
+  name          String
+  category      String
+  unitOfMeasure String            @default("PCS")
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  locations     StorageLocation[]
+  itemInventory ItemInventory[]
+  movements     StockMovement[]
+
+  @@unique([businessId, sku])
+}
+
+model ItemInventory {
+  id          String    @id @default(uuid())
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity    Int
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([warehouseId, productId])
+}
+
+model StockMovement {
+  id            String    @id @default(uuid())
+  warehouseId   String
+  warehouse     Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type          String    // INBOUND | OUTBOUND
+  referenceCode String    // e.g. PO-TLV-101 or SO-TLV-501
+  partnerName   String    // Supplier (Inbound) or Customer (Outbound)
+  locationCode  String?   // Optional matrix cell code (e.g. A-01)
+  quantity      Int
+  status        String    @default("COMPLETED") // PENDING | IN_PROGRESS | COMPLETED
+  createdAt     DateTime  @default(now())
+}

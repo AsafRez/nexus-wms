@@ -1,0 +1,366 @@
+{
+  "generatedAt": "2026-11-04T12:36:04.892402+00:00",
+  "targetWarehouse": {
+    "id": "e192ce4f-4b71-455f-b48e-fcad8bb1175b",
+    "code": "TLV-01",
+    "name": "Central Distribution Hub"
+  },
+  "judgeMode": "DETERMINISTIC_LIVE_DB (Set GEMINI_API_KEY in backend/.env to enable Gemini LLM Judge)",
+  "summary": {
+    "totalCases": 8,
+    "passedCases": 8,
+    "failedCases": 0,
+    "passRatePct": 100.0,
+    "faithfulness": 1.0,
+    "answerRelevance": 1.0,
+    "retrievalPrecision": 1.0,
+    "llmJudgeAvgScore": null,
+    "avgLatencyMs": 719.6
+  },
+  "cases": [
+    {
+      "case_id": "TC-01A",
+      "scenario": "1. Product & Cell Retrieval",
+      "title": "Exact SKU Stock & Cell Lookup",
+      "query": "Where is APX-BAT-110 stored and how many units do we have?",
+      "expected_ground_truth": "APX-BAT-110 (Lithium-Ion Backup Battery Pack): 25 BOX across cells ['A-08', 'B-02', 'B-06', 'B-10', 'C-04', 'C-08', 'D-02', 'D-06', 'D-10', 'E-04', 'E-08', 'F-02']",
+      "agent_reply": "Lithium-Ion Backup Battery Pack (APX-BAT-110):\n• Warehouse stock: 25 BOX (Power Systems)\n• Stored in 12 cell(s) in TLV-01: A-08 (24 units), B-02 (30 units), B-06 (74 units), B-10 (53 units), C-04 (59 units), C-08 (38 units), D-02 (44 units), D-06 (23 units), D-10 (67 units), E-04 (73 units), E-08 (52 units), F-02 (58 units)",
+      "provider": "LOCAL_WMS_ENGINE",
+      "executed_actions": [],
+      "passed": true,
+      "latency_ms": 383.6,
+      "metrics": {
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0,
+        "retrieval_precision": 1.0,
+        "llm_judge_score": null,
+        "llm_judge_rationale": null
+      },
+      "assertions": [
+        {
+          "dimension": "retrieval",
+          "check": "Resolves target SKU APX-BAT-110",
+          "passed": true,
+          "detail": "Expected 'APX-BAT-110' and 'Lithium-Ion Backup Battery Pack' in reply."
+        },
+        {
+          "dimension": "faithfulness",
+          "check": "Reports exact live warehouse stock (25)",
+          "passed": true,
+          "detail": "Expected live quantity 25 (25) in reply."
+        },
+        {
+          "dimension": "retrieval",
+          "check": "Lists all 12 occupied cells holding APX-BAT-110",
+          "passed": true,
+          "detail": "Expected cells ['A-08', 'B-02', 'B-06', 'B-10', 'C-04', 'C-08', 'D-02', 'D-06', 'D-10', 'E-04', 'E-08', 'F-02']; missing=[]."
+        },
+        {
+          "dimension": "relevance",
+          "check": "Does not misclassify lookup as open-cells recommendation",
+          "passed": true,
+          "detail": "Reply directly answers product location & stock."
+        }
+      ]
+    },
+    {
+      "case_id": "TC-01B",
+      "scenario": "1. Product & Cell Retrieval",
+      "title": "Typo-Tolerant \"Litium\" Regression Test",
+      "query": "Where can I find \"Litium\"?",
+      "expected_ground_truth": "Typo \"Litium\" resolves to APX-BAT-110 (25 units) in cells ['A-08', 'B-02', 'B-06', 'B-10', 'C-04', 'C-08', 'D-02', 'D-06', 'D-10', 'E-04', 'E-08', 'F-02']",
+      "agent_reply": "Lithium-Ion Backup Battery Pack (APX-BAT-110):\n• Warehouse stock: 25 BOX (Power Systems)\n• Stored in 12 cell(s) in TLV-01: A-08 (24 units), B-02 (30 units), B-06 (74 units), B-10 (53 units), C-04 (59 units), C-08 (38 units), D-02 (44 units), D-06 (23 units), D-10 (67 units), E-04 (73 units), E-08 (52 units), F-02 (58 units)",
+      "provider": "LOCAL_WMS_ENGINE",
+      "executed_actions": [],
+      "passed": true,
+      "latency_ms": 377.2,
+      "metrics": {
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0,
+        "retrieval_precision": 1.0,
+        "llm_judge_score": null,
+        "llm_judge_rationale": null
+      },
+      "assertions": [
+        {
+          "dimension": "retrieval",
+          "check": "Fuzzy-matches typo \"Litium\" -> APX-BAT-110 (Lithium-Ion Backup Battery Pack)",
+          "passed": true,
+          "detail": "Expected APX-BAT-110 / Lithium-Ion Backup Battery Pack."
+        },
+        {
+          "dimension": "faithfulness",
+          "check": "Grounds stock count to live DB (25 units)",
+          "passed": true,
+          "detail": "Expected live quantity 25 in reply."
+        },
+        {
+          "dimension": "retrieval",
+          "check": "Returns actual occupied cells holding Lithium batteries (['A-08', 'B-02', 'B-06', 'B-10', 'C-04', 'C-08', 'D-02', 'D-06', 'D-10', 'E-04', 'E-08', 'F-02'])",
+          "passed": true,
+          "detail": "Expected cells ['A-08', 'B-02', 'B-06', 'B-10', 'C-04', 'C-08', 'D-02', 'D-06', 'D-10', 'E-04', 'E-08', 'F-02']; missing=[]."
+        },
+        {
+          "dimension": "relevance",
+          "check": "Regression check: never returns generic open cells for 'Where can I find ...'",
+          "passed": true,
+          "detail": "Confirmed 'where' + product name routes to product cell lookup."
+        }
+      ]
+    },
+    {
+      "case_id": "TC-02A",
+      "scenario": "2. Abstention & Hallucination Traps",
+      "title": "Non-Existent SKU Hallucination Trap",
+      "query": "How many units of SKU FAKE-X999 do we have in stock?",
+      "expected_ground_truth": "SKU FAKE-X999 does not exist; assistant must state 'cannot answer that yet'.",
+      "agent_reply": "I cannot answer that yet — I couldn't find matching information (\"fake-x999\") in Central Distribution Hub (TLV-01) warehouse data. Try asking about a stored SKU/product name, a cell code (e.g. A-01), open cells, capacity, or inbound/outbound movements.",
+      "provider": "LOCAL_WMS_ENGINE",
+      "executed_actions": [],
+      "passed": true,
+      "latency_ms": 894.0,
+      "metrics": {
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0,
+        "retrieval_precision": 1.0,
+        "llm_judge_score": null,
+        "llm_judge_rationale": null
+      },
+      "assertions": [
+        {
+          "dimension": "faithfulness",
+          "check": "Explicitly abstains on unknown SKU FAKE-X999",
+          "passed": true,
+          "detail": "Reply abstention check: I cannot answer that yet — I couldn't find matching information (\"fake-x999\") in Central Distribution Hub (TLV-01) wareh"
+        },
+        {
+          "dimension": "faithfulness",
+          "check": "Zero hallucinated unit quantities for FAKE-X999",
+          "passed": true,
+          "detail": "Confirmed no fabricated unit/pcs/boxes figure."
+        },
+        {
+          "dimension": "relevance",
+          "check": "Executes zero warehouse mutations",
+          "passed": true,
+          "detail": "executedActions=[]"
+        }
+      ]
+    },
+    {
+      "case_id": "TC-02B",
+      "scenario": "2. Abstention & Hallucination Traps",
+      "title": "Unsupported Attribute (Price) Trap",
+      "query": "What is the unit price in dollars of APX-SCN-400?",
+      "expected_ground_truth": "Prices are not stored in WMS schema; assistant must state 'cannot answer that yet'.",
+      "agent_reply": "I cannot answer that yet — that information is not stored in Central Distribution Hub (TLV-01) warehouse data. I can answer questions about cell locations, SKU stock quantities, matrix capacity, and inbound/outbound movements.",
+      "provider": "LOCAL_WMS_ENGINE",
+      "executed_actions": [],
+      "passed": true,
+      "latency_ms": 387.0,
+      "metrics": {
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0,
+        "retrieval_precision": 1.0,
+        "llm_judge_score": null,
+        "llm_judge_rationale": null
+      },
+      "assertions": [
+        {
+          "dimension": "faithfulness",
+          "check": "Explicitly states 'cannot answer that yet' for unstored price data",
+          "passed": true,
+          "detail": "Reply: I cannot answer that yet — that information is not stored in Central Distribution Hub (TLV-01) warehouse data. I can ans"
+        },
+        {
+          "dimension": "faithfulness",
+          "check": "Does not invent any dollar price ($XX.XX) for APX-SCN-400",
+          "passed": true,
+          "detail": "Confirmed zero fabricated currency figures."
+        },
+        {
+          "dimension": "relevance",
+          "check": "Clarifies what warehouse data IS available",
+          "passed": true,
+          "detail": "Guides operator to supported warehouse domains."
+        }
+      ]
+    },
+    {
+      "case_id": "TC-03A",
+      "scenario": "3. Capacity & Cell Ground Truth",
+      "title": "Live Warehouse Occupancy & Capacity Check",
+      "query": "What is the current occupancy percentage and cell capacity of this warehouse?",
+      "expected_ground_truth": "Central Distribution Hub (TLV-01) is 50% full (50/100 cells occupied).",
+      "agent_reply": "Central Distribution Hub (TLV-01) is 50% full (50/100 matrix cells occupied, 50 empty).\n• Total items in cells: 2,172 across 10×10 matrix\n• Catalog inventory: 4 SKUs (1,998 units)\n• Highest utilization row: Row B (100%)",
+      "provider": "LOCAL_WMS_ENGINE",
+      "executed_actions": [],
+      "passed": true,
+      "latency_ms": 565.4,
+      "metrics": {
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0,
+        "retrieval_precision": 1.0,
+        "llm_judge_score": null,
+        "llm_judge_rationale": null
+      },
+      "assertions": [
+        {
+          "dimension": "faithfulness",
+          "check": "Matches exact live occupancy percentage (50%)",
+          "passed": true,
+          "detail": "Expected '50%' in reply."
+        },
+        {
+          "dimension": "faithfulness",
+          "check": "Matches live occupied/total matrix cells (50/100)",
+          "passed": true,
+          "detail": "Expected usedCapacity=50 and totalCapacity=100."
+        },
+        {
+          "dimension": "retrieval",
+          "check": "References active warehouse code (TLV-01)",
+          "passed": true,
+          "detail": "Expected Central Distribution Hub (TLV-01)."
+        },
+        {
+          "dimension": "relevance",
+          "check": "Directly summarizes warehouse utilization",
+          "passed": true,
+          "detail": "Clear capacity report returned."
+        }
+      ]
+    },
+    {
+      "case_id": "TC-03B",
+      "scenario": "3. Capacity & Cell Ground Truth",
+      "title": "Live Cell Inspection (A-02)",
+      "query": "What is currently stored in cell A-02?",
+      "expected_ground_truth": "Cell A-02 holds 25/100 items of APX-SCN-400 (Zebra Industrial Barcode Scanner).",
+      "agent_reply": "Cell A-02 [row 0, col 1] is occupied (25/100 items, 75 free slots), holding APX-SCN-400 (Zebra Industrial Barcode Scanner).",
+      "provider": "LOCAL_WMS_ENGINE",
+      "executed_actions": [],
+      "passed": true,
+      "latency_ms": 316.3,
+      "metrics": {
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0,
+        "retrieval_precision": 1.0,
+        "llm_judge_score": null,
+        "llm_judge_rationale": null
+      },
+      "assertions": [
+        {
+          "dimension": "retrieval",
+          "check": "Inspects requested cell A-02",
+          "passed": true,
+          "detail": "Expected cell code A-02 in reply."
+        },
+        {
+          "dimension": "faithfulness",
+          "check": "Reports exact cell item count (25/100)",
+          "passed": true,
+          "detail": "Expected 25/100 items."
+        },
+        {
+          "dimension": "retrieval",
+          "check": "Identifies assigned single product APX-SCN-400 (Zebra Industrial Barcode Scanner)",
+          "passed": true,
+          "detail": "Expected APX-SCN-400 (Zebra Industrial Barcode Scanner)."
+        },
+        {
+          "dimension": "relevance",
+          "check": "Read-only inspection executes zero mutations",
+          "passed": true,
+          "detail": "Confirmed 0 mutations."
+        }
+      ]
+    },
+    {
+      "case_id": "TC-04",
+      "scenario": "4. Live Action Execution & Cleanup",
+      "title": "Inbound Putaway (+5 APX-SCN-400 -> A-01) + Rollback",
+      "query": "Insert 5 APX-SCN-400 into A-01",
+      "expected_ground_truth": "Insert 5 APX-SCN-400 into empty cell A-01 updates DB (+5 units, usedCapacity=51), followed by clean -5 teardown back to 420 units.",
+      "agent_reply": "Inserted 5 × APX-SCN-400 (Zebra Industrial Barcode Scanner) into cell A-01. Warehouse is now 51% full.",
+      "provider": "LOCAL_WMS_ENGINE",
+      "executed_actions": [
+        {
+          "summary": "Inserted 5 × APX-SCN-400 (Zebra Industrial Barcode Scanner) into cell A-01. Warehouse is now 51% full.",
+          "cellCode": "A-01",
+          "sku": "APX-SCN-400",
+          "quantity": 5,
+          "direction": "INBOUND"
+        }
+      ],
+      "passed": true,
+      "latency_ms": 2134.6,
+      "metrics": {
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0,
+        "retrieval_precision": 1.0,
+        "llm_judge_score": null,
+        "llm_judge_rationale": null
+      },
+      "assertions": [
+        {
+          "dimension": "relevance",
+          "check": "Executes structured INBOUND tool action (+5 APX-SCN-400 -> A-01)",
+          "passed": true,
+          "detail": "executedActions=[{'summary': 'Inserted 5 × APX-SCN-400 (Zebra Industrial Barcode Scanner) into cell A-01. Warehouse is now 51% full.', 'cellCode': 'A-01', 'sku': 'APX-SCN-400', 'quantity': 5, 'direction': 'INBOUND'}]"
+        },
+        {
+          "dimension": "faithfulness",
+          "check": "Neon DB verified: APX-SCN-400 stock +5 & cell A-01 assigned to APX-SCN-400",
+          "passed": true,
+          "detail": "Before qty=420, During qty=425, Cell items=5, Cell product={'productId': 'c5a5e2eb-23f9-41be-b73d-91f9bf8645da', 'sku': 'APX-SCN-400', 'productName': 'Zebra Industrial Barcode Scanner'}"
+        },
+        {
+          "dimension": "retrieval",
+          "check": "Auto-cleanup via Boxiy REMOVE restored A-01 to empty (0/100, product=null)",
+          "passed": true,
+          "detail": "After qty=420, Cell items=0, Cell product=None"
+        }
+      ]
+    },
+    {
+      "case_id": "TC-05",
+      "scenario": "5. OOP Domain Guardrail Enforcement",
+      "title": "1-Product-Per-Cell Conflict (APX-BAT-110 into A-02)",
+      "query": "Insert 5 APX-BAT-110 into A-02",
+      "expected_ground_truth": "Cell A-02 already holds APX-SCN-400; inserting APX-BAT-110 must be rejected by StorageLocationEntity 1-product-per-cell domain rule with 0 DB changes.",
+      "agent_reply": "Cell A-02 already holds APX-SCN-400 (Zebra Industrial Barcode Scanner). Choose an empty cell or a cell holding APX-BAT-110.",
+      "provider": "LOCAL_WMS_ENGINE",
+      "executed_actions": [],
+      "passed": true,
+      "latency_ms": 699.1,
+      "metrics": {
+        "faithfulness": 1.0,
+        "answer_relevance": 1.0,
+        "retrieval_precision": 1.0,
+        "llm_judge_score": null,
+        "llm_judge_rationale": null
+      },
+      "assertions": [
+        {
+          "dimension": "relevance",
+          "check": "Blocks conflicting SKU APX-BAT-110 from entering A-02 (0 executedActions)",
+          "passed": true,
+          "detail": "executedActions=[]"
+        },
+        {
+          "dimension": "faithfulness",
+          "check": "Explains cell A-02 already holds APX-SCN-400 (1-product-per-cell rule)",
+          "passed": true,
+          "detail": "Reply: Cell A-02 already holds APX-SCN-400 (Zebra Industrial Barcode Scanner). Choose an empty cell or a cell holding APX-BAT-110."
+        },
+        {
+          "dimension": "retrieval",
+          "check": "Neon DB state verified untouched (A-02 still 25 x APX-SCN-400)",
+          "passed": true,
+          "detail": "Cell after: 25 x APX-SCN-400"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "nexus-wms-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "install:all": "npm install",
+    "db:setup": "npm run db:setup --workspace=backend",
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspace=backend",
+    "dev:backend": "npm run start:dev --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "qa:ai": "python qa/qa_eval.py",
+    "qa:system": "python qa/system_qa_suite.py"
+  }
+}
