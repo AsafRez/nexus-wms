@@ -1,6 +1,6 @@
 import { BaseEntity } from './base.entity';
 
-export type MovementType = 'INBOUND' | 'OUTBOUND';
+export type MovementType = 'INBOUND' | 'OUTBOUND' | 'PUTAWAY' | 'INBOUND_RECEIVE';
 export type MovementStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
 
 export interface StockMovementProps {
@@ -74,5 +74,33 @@ export class OutboundMovementEntity extends StockMovementEntity {
 
   public get signedQuantityDelta(): number {
     return -this.quantity;
+  }
+}
+
+export class PutawayMovementEntity extends StockMovementEntity {
+  constructor(props: StockMovementProps) {
+    super(props);
+  }
+
+  public get movementType(): MovementType {
+    return 'PUTAWAY';
+  }
+
+  public get signedQuantityDelta(): number {
+    return 0; // Internal shelf allocation, total warehouse quantity does not change
+  }
+}
+
+export class InboundReceiveMovementEntity extends StockMovementEntity {
+  constructor(props: StockMovementProps) {
+    super(props);
+  }
+
+  public get movementType(): MovementType {
+    return 'INBOUND_RECEIVE';
+  }
+
+  public get signedQuantityDelta(): number {
+    return +this.quantity;
   }
 }

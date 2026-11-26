@@ -136,18 +136,68 @@ export class WarehousesService {
 
   async getInventory(warehouseId: string, businessId: string) {
     await this.assertWarehouseOwnership(warehouseId, businessId);
-    const items = await this.warehouseRepository.getInventoryItems(warehouseId);
-    return items.map((item) => ({
-      id: item.id,
-      warehouseId: item.warehouseId,
-      productId: item.productId,
-      sku: item.sku,
-      productName: item.productName,
-      category: item.category,
-      unitOfMeasure: item.unitOfMeasure,
-      quantity: item.quantity,
-      updatedAt: item.updatedAt.toISOString(),
-    }));
+    const [items, locations] = await Promise.all([
+      this.warehouseRepository.getInventoryItems(warehouseId),
+      this.warehouseRepository.getLocations(warehouseId),
+    ]);
+
+    const cellSumsByProductId = new Map<string, number>();
+    for (const loc of locations) {
+      if (loc.product && loc.currentItems > 0) {
+        const cur = cellSumsByProductId.get(loc.product.productId) ?? 0;
+        cellSumsByProductId.set(loc.product.productId, cur + loc.currentItems);
+      }
+    }
+
+    return items.map((item) => {
+      const inRack = cellSumsByProductId.get(item.productId) ?? 0;
+      const staged = Math.max(0, item.quantity - inRack);
+      return {
+        id: item.id,
+        warehouseId: item.warehouseId,
+        productId: item.productId,
+        sku: item.sku,
+        productName: item.productName,
+        category: item.category,
+        unitOfMeasure: item.unitOfMeasure,
+        quantity: item.quantity,
+        inRackQuantity: inRack,
+        stagedQuantity: staged,
+        updatedAt: item.updatedAt.toISOString(),
+      };
+    });
+  }
+
+  async getStagedInventory(warehouseId: string, businessId: string) {
+    const [inventory, recentMovements] = await Promise.all([
+      this.getInventory(warehouseId, businessId),
+      this.warehouseRepository.getMovements(warehouseId, undefined, 50),
+    ]);
+
+    const stagedItems = [];
+    for (const item of inventory) {
+      if ((item.stagedQuantity ?? 0) > 0) {
+        const lastInbound = recentMovements.find(
+          (m) =>
+            m.productSku === item.sku &&
+            (m.movementType === 'INBOUND' || m.movementType === 'INBOUND_RECEIVE'),
+        );
+        stagedItems.push({
+          id: lastInbound?.id ?? item.id,
+          warehouseId: item.warehouseId,
+          productId: item.productId,
+          sku: item.sku,
+          productName: item.productName,
+          category: item.category,
+          unitOfMeasure: item.unitOfMeasure,
+          stagedQuantity: item.stagedQuantity ?? 0,
+          partnerName: lastInbound?.partnerName ?? 'Dock Delivery',
+          referenceCode: lastInbound?.referenceCode ?? `REC-${item.sku}`,
+          receivedAt: (lastInbound?.createdAt ?? new Date()).toISOString(),
+        });
+      }
+    }
+    return stagedItems;
   }
 
   async adjustWarehouseInventory(
@@ -164,9 +214,7 @@ export class WarehousesService {
     const randSuffix = Math.random().toString(36).slice(2, 5).toUpperCase();
 
     if (input.action === 'INSERT') {
-      if (typeof input.row !== 'number' || typeof input.col !== 'number') {
-        throw new BadRequestException('Select a target storage cell [row, col] for putaway.');
-      }
+      const isDirectCell = typeof input.row === 'number' && typeof input.col === 'number';
 
       let resolvedProductId: string | undefined;
       let newProductPayload:
@@ -227,23 +275,25 @@ export class WarehousesService {
         resolvedProductEntity = existingProduct;
       }
 
-      let updatedCell: StorageLocationEntity;
-      try {
-        const targetCell = warehouse.getCell(input.row, input.col);
-        if (resolvedProductEntity) {
-          targetCell.assignOrVerifyProduct({
-            productId: resolvedProductEntity.id,
-            sku: resolvedProductEntity.sku,
-            productName: resolvedProductEntity.name,
-          });
-        } else if (targetCell.isOccupied && targetCell.product) {
-          throw new Error(
-            `Cell ${targetCell.code} already holds ${targetCell.product.sku} (${targetCell.product.productName}). Choose an empty cell for a new SKU.`,
-          );
+      let updatedCell: StorageLocationEntity | null = null;
+      if (isDirectCell) {
+        try {
+          const targetCell = warehouse.getCell(input.row!, input.col!);
+          if (resolvedProductEntity) {
+            targetCell.assignOrVerifyProduct({
+              productId: resolvedProductEntity.id,
+              sku: resolvedProductEntity.sku,
+              productName: resolvedProductEntity.name,
+            });
+          } else if (targetCell.isOccupied && targetCell.product) {
+            throw new Error(
+              `Cell ${targetCell.code} already holds ${targetCell.product.sku} (${targetCell.product.productName}). Choose an empty cell for a new SKU.`,
+            );
+          }
+          updatedCell = warehouse.addItemsAt(input.row!, input.col!, input.quantity);
+        } catch (err) {
+          throw new BadRequestException((err as Error).message);
         }
-        updatedCell = warehouse.addItemsAt(input.row, input.col, input.quantity);
-      } catch (err) {
-        throw new BadRequestException((err as Error).message);
       }
 
       let txResult;
@@ -256,10 +306,12 @@ export class WarehousesService {
           productId: resolvedProductId,
           newProduct: newProductPayload,
           movement: {
-            type: 'INBOUND',
+            type: isDirectCell ? 'INBOUND' : 'INBOUND_RECEIVE',
             referenceCode: `PO-${warehouse.code}-${shortStamp}-${randSuffix}`,
-            partnerName: input.partnerName?.trim() || 'Inventory Putaway',
-            locationCode: updatedCell.code,
+            partnerName:
+              input.partnerName?.trim() ||
+              (isDirectCell ? 'Inventory Putaway' : 'Supplier Delivery'),
+            locationCode: updatedCell ? updatedCell.code : 'STAGING',
             quantity: input.quantity,
           },
         });
@@ -276,19 +328,22 @@ export class WarehousesService {
       ]);
 
       const insertedInv = updatedInventory.find((i) => i.sku === txResult.movement.productSku);
-      const finalItems = txResult.cellCurrentItems ?? updatedCell.currentItems;
-      const cellDto = {
-        ...this.serializeCell(updatedCell),
-        currentItems: finalItems,
-        isOccupied: finalItems > 0,
-        product: insertedInv
-          ? {
-              productId: insertedInv.productId,
-              sku: insertedInv.sku,
-              productName: insertedInv.productName,
-            }
-          : updatedCell.product,
-      };
+      let cellDto = null;
+      if (updatedCell) {
+        const finalItems = txResult.cellCurrentItems ?? updatedCell.currentItems;
+        cellDto = {
+          ...this.serializeCell(updatedCell),
+          currentItems: finalItems,
+          isOccupied: finalItems > 0,
+          product: insertedInv
+            ? {
+                productId: insertedInv.productId,
+                sku: insertedInv.sku,
+                productName: insertedInv.productName,
+              }
+            : updatedCell.product,
+        };
+      }
 
       return {
         warehouse: this.serializeWarehouseSummary(refreshedWh),
@@ -403,6 +458,125 @@ export class WarehousesService {
       throw new NotFoundException('Warehouse not found or does not belong to your business.');
     }
     return warehouse;
+  }
+
+  async executePutaway(
+    warehouseId: string,
+    businessId: string,
+    input: { productId: string; cellCode: string; quantity: number },
+  ) {
+    if (!Number.isInteger(input.quantity) || input.quantity <= 0) {
+      throw new BadRequestException('Quantity must be a positive integer.');
+    }
+    const cleanCellCode = (input.cellCode || '').trim().toUpperCase();
+    if (!cleanCellCode) {
+      throw new BadRequestException('Please provide a cell code (e.g. A-01).');
+    }
+
+    const warehouse = await this.assertWarehouseWithMatrix(warehouseId, businessId);
+
+    let targetCell: StorageLocationEntity | null = null;
+    for (const rowCells of warehouse.matrix ?? []) {
+      for (const cell of rowCells) {
+        if (cell.code.toUpperCase() === cleanCellCode) {
+          targetCell = cell;
+          break;
+        }
+      }
+      if (targetCell) break;
+    }
+
+    if (!targetCell) {
+      throw new BadRequestException(
+        `Storage cell "${cleanCellCode}" does not exist in warehouse ${warehouse.code}.`,
+      );
+    }
+
+    const inventory = await this.getInventory(warehouseId, businessId);
+    const itemInv = inventory.find((i) => i.productId === input.productId);
+    if (!itemInv) {
+      throw new NotFoundException('Selected product is not found in this warehouse.');
+    }
+
+    const availableStaged = itemInv.stagedQuantity ?? 0;
+    if (input.quantity > availableStaged) {
+      throw new BadRequestException(
+        `Cannot put away ${input.quantity} units. Only ${availableStaged} units are currently waiting in staging.`,
+      );
+    }
+
+    if (
+      targetCell.isOccupied &&
+      targetCell.product &&
+      targetCell.product.productId !== input.productId
+    ) {
+      throw new BadRequestException(
+        `Cell ${targetCell.code} is occupied by SKU ${targetCell.product.sku} (${targetCell.product.productName}). Mixing SKUs is not permitted.`,
+      );
+    }
+
+    const remainingCapacity = targetCell.maxUnits - targetCell.currentItems;
+    if (input.quantity > remainingCapacity) {
+      throw new BadRequestException(
+        `Cell ${targetCell.code} can only hold ${remainingCapacity} more units (max ${targetCell.maxUnits}). Please reduce quantity to ${remainingCapacity} or choose an empty cell.`,
+      );
+    }
+
+    const shortStamp = Date.now().toString().slice(-4);
+    const randSuffix = Math.random().toString(36).slice(2, 5).toUpperCase();
+
+    let txResult;
+    try {
+      txResult = await this.warehouseRepository.executePutawayTransaction({
+        warehouse,
+        productId: input.productId,
+        cell: targetCell,
+        quantity: input.quantity,
+        movement: {
+          type: 'PUTAWAY',
+          referenceCode: `PUT-${warehouse.code}-${shortStamp}-${randSuffix}`,
+          partnerName: 'Warehouse Staff Putaway',
+          locationCode: targetCell.code,
+          quantity: input.quantity,
+        },
+      });
+    } catch (err) {
+      if (err instanceof InventoryConflictError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
+
+    const [refreshedWh, updatedInventory, updatedStaged] = await Promise.all([
+      this.assertWarehouseOwnership(warehouse.id, businessId),
+      this.getInventory(warehouse.id, businessId),
+      this.getStagedInventory(warehouse.id, businessId),
+    ]);
+
+    const finalCellItems =
+      txResult.cellCurrentItems ?? targetCell.currentItems + input.quantity;
+    const cellDto = {
+      ...this.serializeCell(targetCell),
+      currentItems: finalCellItems,
+      isOccupied: finalCellItems > 0,
+      product: {
+        productId: itemInv.productId,
+        sku: itemInv.sku,
+        productName: itemInv.productName,
+      },
+    };
+
+    const remainingForProduct =
+      updatedStaged.find((s) => s.productId === input.productId)?.stagedQuantity ?? 0;
+
+    return {
+      warehouse: this.serializeWarehouseSummary(refreshedWh),
+      cell: cellDto,
+      remainingStagedQuantity: remainingForProduct,
+      stagedItems: updatedStaged,
+      inventory: updatedInventory,
+      movement: this.serializeMovement(txResult.movement),
+    };
   }
 
   private serializeMovement(m: StockMovementEntity) {

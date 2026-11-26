@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { QrCode } from 'lucide-react';
 import { StorageLocationDto } from '../../../shared/wms.contracts';
+import { CellQrLabelModal } from '../components/locations/CellQrLabelModal';
 import { useWarehouse } from '../context/WarehouseContext';
 import { warehouseApiService } from '../services/WarehouseApiService';
 
@@ -10,6 +12,7 @@ export const LocationsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'OCCUPIED' | 'AVAILABLE'>('ALL');
   const [query, setQuery] = useState<string>('');
   const [busyCellId, setBusyCellId] = useState<string | null>(null);
+  const [selectedQrCell, setSelectedQrCell] = useState<StorageLocationDto | null>(null);
 
   useEffect(() => {
     if (!selectedWarehouse) return;
@@ -158,10 +161,20 @@ export const LocationsPage: React.FC = () => {
                 <button
                   type="button"
                   className="counter-step-btn"
+                  title="View and print rack QR label"
+                  onClick={() => setSelectedQrCell(loc)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                >
+                  <QrCode size={13} />
+                  <span>QR</span>
+                </button>
+                <button
+                  type="button"
+                  className="counter-step-btn"
                   disabled={busyCellId === loc.id || loc.currentItems === 0}
                   onClick={() => handleCellStep(loc, -1)}
                 >
-                  -1 remove
+                  -1
                 </button>
                 <button
                   type="button"
@@ -171,18 +184,25 @@ export const LocationsPage: React.FC = () => {
                   }
                   title={
                     !loc.product
-                      ? 'Empty cell — assign a SKU via Inventory -> Manage Stock first'
+                      ? 'Empty cell — assign a SKU via Inventory -> Put Away first'
                       : undefined
                   }
                   onClick={() => handleCellStep(loc, +1)}
                 >
-                  +1 add
+                  +1
                 </button>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      <CellQrLabelModal
+        isOpen={Boolean(selectedQrCell)}
+        warehouse={selectedWarehouse}
+        cell={selectedQrCell}
+        onClose={() => setSelectedQrCell(null)}
+      />
     </>
   );
 };

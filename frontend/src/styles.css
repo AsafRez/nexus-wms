@@ -2836,3 +2836,22 @@ code,
     border: none !important;
   }
 }
+
+/* Print Shelf QR Label Styles */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-shelf-label,
+  #printable-shelf-label * {
+    visibility: visible;
+  }
+  #printable-shelf-label {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: none !important;
+    border: 2px solid #000000 !important;
+  }
+}

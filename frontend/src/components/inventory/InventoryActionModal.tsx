@@ -947,16 +947,14 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
     }
 
     if (action === 'INSERT') {
-      if (!selectedCell) {
-        setErrorMsg('Select a storage cell in the matrix where these items will be placed.');
-        return;
-      }
-      const remaining = selectedCell.maxUnits - selectedCell.currentItems;
-      if (quantity > remaining) {
-        setErrorMsg(
-          `Cell ${selectedCell.code} only has space for ${remaining} more unit(s) (${selectedCell.currentItems}/${selectedCell.maxUnits}).`,
-        );
-        return;
+      if (selectedCell) {
+        const remaining = selectedCell.maxUnits - selectedCell.currentItems;
+        if (quantity > remaining) {
+          setErrorMsg(
+            `Cell ${selectedCell.code} only has space for ${remaining} more unit(s) (${selectedCell.currentItems}/${selectedCell.maxUnits}).`,
+          );
+          return;
+        }
       }
       if (isCreatingNewSku) {
         if (!newSku.trim() || !newName.trim()) {
@@ -1822,6 +1820,9 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
                   value={selectedCellCoord}
                   onChange={(e) => setSelectedCellCoord(e.target.value)}
                 >
+                  {action === 'INSERT' && (
+                    <option value="STAGING">⏳ Send to Staging Area (Pending Putaway)</option>
+                  )}
                   {action === 'REMOVE' && (
                     <option value="NONE">Inventory ledger only (skip cell counter)</option>
                   )}

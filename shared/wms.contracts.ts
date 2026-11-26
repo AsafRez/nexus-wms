@@ -5,7 +5,7 @@
 export type UserRole = 'ADMIN' | 'MANAGER' | 'OPERATOR';
 export type WarehouseType = 'STANDARD' | 'COLD_STORAGE' | 'FULFILLMENT';
 export type CapacityStatus = 'OPTIMAL' | 'MODERATE' | 'HIGH' | 'CRITICAL';
-export type MovementType = 'INBOUND' | 'OUTBOUND';
+export type MovementType = 'INBOUND' | 'OUTBOUND' | 'PUTAWAY' | 'INBOUND_RECEIVE';
 export type MovementStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
 
 export interface BusinessSummaryDto {
@@ -112,7 +112,39 @@ export interface WarehouseInventoryItemDto {
   category: string;
   unitOfMeasure: string;
   quantity: number;
+  inRackQuantity?: number;
+  stagedQuantity?: number;
   updatedAt: string;
+}
+
+export interface StagedInventoryItemDto {
+  id: string;
+  warehouseId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  category: string;
+  unitOfMeasure: string;
+  stagedQuantity: number;
+  partnerName: string;
+  referenceCode: string;
+  receivedAt: string;
+}
+
+export interface PutawayRequestDto {
+  stagedMovementId?: string;
+  productId: string;
+  cellCode: string; // e.g. "A-01"
+  quantity: number;
+}
+
+export interface PutawayResultDto {
+  warehouse: WarehouseSummaryDto;
+  cell: StorageLocationDto;
+  remainingStagedQuantity: number;
+  stagedItems: StagedInventoryItemDto[];
+  inventory: WarehouseInventoryItemDto[];
+  movement: MovementRecordDto;
 }
 
 export interface ProductCatalogItemDto {

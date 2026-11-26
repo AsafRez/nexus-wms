@@ -5,6 +5,9 @@ import {
   MovementRecordDto,
   MovementType,
   ProductCatalogItemDto,
+  PutawayRequestDto,
+  PutawayResultDto,
+  StagedInventoryItemDto,
   StorageLocationDto,
   WarehouseDashboardDto,
   WarehouseInventoryItemDto,
@@ -62,6 +65,20 @@ export class WarehouseApiService {
   async fetchMovements(warehouseId: string, type: MovementType): Promise<MovementRecordDto[]> {
     return this.client.get<MovementRecordDto[]>(
       `/warehouses/${warehouseId}/movements?type=${type}`,
+    );
+  }
+
+  async fetchStagedInventory(warehouseId: string): Promise<StagedInventoryItemDto[]> {
+    return this.client.get<StagedInventoryItemDto[]>(`/warehouses/${warehouseId}/staged`);
+  }
+
+  async executePutaway(
+    warehouseId: string,
+    payload: PutawayRequestDto,
+  ): Promise<PutawayResultDto> {
+    return this.client.post<PutawayResultDto>(
+      `/warehouses/${warehouseId}/putaway`,
+      payload,
     );
   }
 }

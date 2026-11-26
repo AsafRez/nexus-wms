@@ -14,11 +14,14 @@ import { ItemInventoryEntity } from '../../domain/entities/item-inventory.entity
 import { ProductEntity } from '../../domain/entities/product.entity';
 import {
   InboundMovementEntity,
+  InboundReceiveMovementEntity,
   MovementStatus,
   MovementType,
   OutboundMovementEntity,
+  PutawayMovementEntity,
   StockMovementEntity,
 } from '../../domain/entities/stock-movement.entity';
+import { PutawayTransactionCommand } from '../../domain/repositories/warehouse.repository.interface';
 
 @Injectable()
 export class PrismaWarehouseRepository implements IWarehouseRepository {
@@ -106,6 +109,36 @@ export class PrismaWarehouseRepository implements IWarehouseRepository {
       createdAt: wh.createdAt,
       updatedAt: wh.updatedAt,
     });
+  }
+
+  async getLocations(warehouseId: string): Promise<StorageLocationEntity[]> {
+    const locations = await this.prisma.storageLocation.findMany({
+      where: { warehouseId },
+      include: { product: true },
+      orderBy: [{ row: 'asc' }, { col: 'asc' }],
+    });
+
+    return locations.map(
+      (loc) =>
+        new StorageLocationEntity({
+          id: loc.id,
+          warehouseId: loc.warehouseId,
+          row: loc.row,
+          col: loc.col,
+          code: loc.code,
+          currentItems: loc.currentItems,
+          maxUnits: loc.maxUnits,
+          product: loc.product
+            ? {
+                productId: loc.product.id,
+                sku: loc.product.sku,
+                productName: loc.product.name,
+              }
+            : null,
+          createdAt: loc.createdAt,
+          updatedAt: loc.updatedAt,
+        }),
+    );
   }
 
   async saveCellAndWarehouseCounters(
@@ -600,16 +633,136 @@ export class PrismaWarehouseRepository implements IWarehouseRepository {
           createdAt: m.createdAt,
         };
 
-        const movementEntity =
-          m.type === 'INBOUND'
-            ? new InboundMovementEntity(props)
-            : new OutboundMovementEntity(props);
+        const movementEntity = this.buildMovementEntity(props, m.type as MovementType);
 
         return {
           movement: movementEntity,
           warehouseUsedCapacity: updatedWh.usedCapacity,
           warehouseTotalItems: updatedWh.totalItems,
           cellCurrentItems,
+        };
+      },
+      { maxWait: 20000, timeout: 25000 },
+    );
+  }
+
+  async executePutawayTransaction(
+    cmd: PutawayTransactionCommand,
+  ): Promise<InventoryTransactionResult> {
+    const qty = cmd.quantity;
+    const cellId = cmd.cell.id;
+    const maxUnits = cmd.cell.maxUnits;
+
+    return this.prisma.$transaction(
+      async (tx) => {
+        let usedCapacityDelta = 0;
+        const totalItemsDelta = qty;
+
+        // 1. Try to add to cell if it already holds this product
+        const sameSkuUpdate = await tx.storageLocation.updateMany({
+          where: {
+            id: cellId,
+            warehouseId: cmd.warehouse.id,
+            currentItems: { gt: 0, lte: maxUnits - qty },
+            productId: cmd.productId,
+          },
+          data: {
+            currentItems: { increment: qty },
+            isOccupied: true,
+          },
+        });
+
+        if (sameSkuUpdate.count === 1) {
+          usedCapacityDelta = 0;
+        } else {
+          // Try to claim empty cell
+          const claimEmpty =
+            qty <= maxUnits
+              ? await tx.storageLocation.updateMany({
+                  where: {
+                    id: cellId,
+                    warehouseId: cmd.warehouse.id,
+                    currentItems: 0,
+                  },
+                  data: {
+                    currentItems: qty,
+                    isOccupied: true,
+                    productId: cmd.productId,
+                  },
+                })
+              : { count: 0 };
+
+          if (claimEmpty.count === 1) {
+            usedCapacityDelta = 1;
+          } else {
+            const liveCell = await tx.storageLocation.findUnique({
+              where: { id: cellId },
+              include: { product: true },
+            });
+            if (liveCell?.product && liveCell.currentItems > 0 && liveCell.productId !== cmd.productId) {
+              throw new InventoryConflictError(
+                `Cell ${cmd.cell.code} already holds ${liveCell.product.sku} (${liveCell.product.name}). Choose an empty cell or a cell holding the same SKU.`,
+              );
+            }
+            throw new InventoryConflictError(
+              `Cell ${cmd.cell.code} does not have enough free capacity for ${qty} items (currently ${liveCell?.currentItems ?? 0}/${maxUnits}).`,
+            );
+          }
+        }
+
+        // 2. Update warehouse counters
+        const updatedWh = await tx.warehouse.update({
+          where: { id: cmd.warehouse.id },
+          data: {
+            ...(usedCapacityDelta !== 0 ? { usedCapacity: { increment: usedCapacityDelta } } : {}),
+            totalItems: { increment: totalItemsDelta },
+          },
+        });
+
+        // 3. Create PUTAWAY stock movement
+        const product = await tx.product.findUniqueOrThrow({
+          where: { id: cmd.productId },
+        });
+
+        const m = await tx.stockMovement.create({
+          data: {
+            warehouseId: cmd.warehouse.id,
+            productId: cmd.productId,
+            type: cmd.movement.type,
+            referenceCode: cmd.movement.referenceCode,
+            partnerName: cmd.movement.partnerName,
+            locationCode: cmd.movement.locationCode,
+            quantity: cmd.quantity,
+            status: 'COMPLETED',
+          },
+        });
+
+        const refreshedCell = await tx.storageLocation.findUnique({
+          where: { id: cellId },
+          select: { currentItems: true },
+        });
+
+        const movementEntity = this.buildMovementEntity(
+          {
+            id: m.id,
+            warehouseId: m.warehouseId,
+            productSku: product.sku,
+            productName: product.name,
+            referenceCode: m.referenceCode,
+            partnerName: m.partnerName,
+            locationCode: m.locationCode,
+            quantity: m.quantity,
+            status: m.status as MovementStatus,
+            createdAt: m.createdAt,
+          },
+          m.type as MovementType,
+        );
+
+        return {
+          movement: movementEntity,
+          warehouseUsedCapacity: updatedWh.usedCapacity,
+          warehouseTotalItems: updatedWh.totalItems,
+          cellCurrentItems: refreshedCell?.currentItems ?? null,
         };
       },
       { maxWait: 20000, timeout: 25000 },
@@ -644,10 +797,22 @@ export class PrismaWarehouseRepository implements IWarehouseRepository {
         status: m.status as MovementStatus,
         createdAt: m.createdAt,
       };
-      return m.type === 'INBOUND'
-        ? new InboundMovementEntity(props)
-        : new OutboundMovementEntity(props);
+      return this.buildMovementEntity(props, m.type as MovementType);
     });
+  }
+
+  private buildMovementEntity(props: any, type: MovementType): StockMovementEntity {
+    switch (type) {
+      case 'PUTAWAY':
+        return new PutawayMovementEntity(props);
+      case 'INBOUND_RECEIVE':
+        return new InboundReceiveMovementEntity(props);
+      case 'INBOUND':
+        return new InboundMovementEntity(props);
+      case 'OUTBOUND':
+      default:
+        return new OutboundMovementEntity(props);
+    }
   }
 
   private toWarehouseDomain(wh: {

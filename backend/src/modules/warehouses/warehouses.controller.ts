@@ -47,6 +47,22 @@ class NewProductPayloadDto {
   unitOfMeasure: string;
 }
 
+class ExecutePutawayDto {
+  @IsString()
+  @IsNotEmpty()
+  productId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(16)
+  cellCode: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(100000)
+  quantity: number;
+}
+
 class AdjustWarehouseInventoryDto {
   @IsIn(['INSERT', 'REMOVE'])
   action: 'INSERT' | 'REMOVE';
@@ -141,6 +157,23 @@ export class WarehousesController {
     @CurrentUser() user: AuthenticatedUserPayload,
   ) {
     return this.warehousesService.getInventory(warehouseId, user.businessId);
+  }
+
+  @Get(':id/staged')
+  async getStagedInventory(
+    @Param('id') warehouseId: string,
+    @CurrentUser() user: AuthenticatedUserPayload,
+  ) {
+    return this.warehousesService.getStagedInventory(warehouseId, user.businessId);
+  }
+
+  @Post(':id/putaway')
+  async executePutaway(
+    @Param('id') warehouseId: string,
+    @Body() dto: ExecutePutawayDto,
+    @CurrentUser() user: AuthenticatedUserPayload,
+  ) {
+    return this.warehousesService.executePutaway(warehouseId, user.businessId, dto);
   }
 
   @Post(':id/inventory/adjust')

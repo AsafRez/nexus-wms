@@ -49,6 +49,20 @@ export interface InventoryTransactionResult {
   cellCurrentItems: number | null;
 }
 
+export interface PutawayTransactionCommand {
+  warehouse: WarehouseEntity;
+  productId: string;
+  cell: StorageLocationEntity;
+  quantity: number;
+  movement: {
+    type: MovementType;
+    referenceCode: string;
+    partnerName: string;
+    locationCode: string;
+    quantity: number;
+  };
+}
+
 export interface IWarehouseRepository {
   findAllByBusinessId(businessId: string): Promise<WarehouseEntity[]>;
   findByIdAndBusinessId(warehouseId: string, businessId: string): Promise<WarehouseEntity | null>;
@@ -56,6 +70,7 @@ export interface IWarehouseRepository {
     warehouseId: string,
     businessId: string,
   ): Promise<WarehouseEntity | null>;
+  getLocations(warehouseId: string): Promise<StorageLocationEntity[]>;
   saveCellAndWarehouseCounters(
     warehouse: WarehouseEntity,
     cell: StorageLocationEntity,
@@ -72,6 +87,9 @@ export interface IWarehouseRepository {
   findProductBySkuAndBusinessId(sku: string, businessId: string): Promise<ProductEntity | null>;
   executeInventoryTransaction(
     cmd: InventoryTransactionCommand,
+  ): Promise<InventoryTransactionResult>;
+  executePutawayTransaction(
+    cmd: PutawayTransactionCommand,
   ): Promise<InventoryTransactionResult>;
   getMovements(
     warehouseId: string,
