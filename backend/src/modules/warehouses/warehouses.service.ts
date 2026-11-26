@@ -152,6 +152,7 @@ export class WarehousesService {
     return items.map((item) => {
       const inRack = cellSumsByProductId.get(item.productId) ?? 0;
       const staged = Math.max(0, item.quantity - inRack);
+      const totalUnits = Math.max(item.quantity, inRack + staged);
       return {
         id: item.id,
         warehouseId: item.warehouseId,
@@ -160,7 +161,7 @@ export class WarehousesService {
         productName: item.productName,
         category: item.category,
         unitOfMeasure: item.unitOfMeasure,
-        quantity: item.quantity,
+        quantity: totalUnits,
         inRackQuantity: inRack,
         stagedQuantity: staged,
         updatedAt: item.updatedAt.toISOString(),

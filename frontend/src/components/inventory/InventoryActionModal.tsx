@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock,
   FileText,
   Plus,
   RefreshCw,
@@ -280,8 +281,7 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
 
   const maxAllowedQuantity = useMemo(() => {
     if (action === 'INSERT') {
-      if (!selectedCell) return 100;
-      return Math.max(0, selectedCell.maxUnits - selectedCell.currentItems);
+      return 100000; // Inbound delivery lands directly in Staging
     }
     const maxByStock = selectedRemoveItem?.quantity ?? 0;
     if (!selectedCell) return maxByStock;
@@ -785,55 +785,7 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
           return;
         }
 
-        if (!line.cellCoord || line.cellCoord === 'NONE') {
-          setErrorMsg(`${lineLabel}: Select a target storage cell in the warehouse matrix.`);
-          return;
-        }
-
-        const [rStr, cStr] = line.cellCoord.split(':');
-        const cell = locations.find((c) => c.row === Number(rStr) && c.col === Number(cStr));
-        if (!cell) {
-          setErrorMsg(`${lineLabel}: Selected storage cell was not found.`);
-          return;
-        }
-
-        const lineIdentity = line.isNewSku
-          ? `NEW:${line.sku.trim().toUpperCase()}`
-          : `PROD:${line.productId}`;
-
-        if (
-          cell.isOccupied &&
-          cell.product &&
-          (line.isNewSku || cell.product.productId !== line.productId)
-        ) {
-          setErrorMsg(
-            `${lineLabel}: Cell ${cell.code} already stores ${cell.product.sku} (1-product-per-cell rule). Choose an open cell.`,
-          );
-          return;
-        }
-
-        const prevCellClaim = cumulativeCellDelta.get(line.cellCoord);
-        if (prevCellClaim && prevCellClaim.identity !== lineIdentity) {
-          setErrorMsg(
-            `${lineLabel}: Cell ${cell.code} is already assigned to another SKU in this order (${prevCellClaim.label}). Pick a separate cell.`,
-          );
-          return;
-        }
-
-        const nextCellQty = (prevCellClaim?.qty ?? 0) + line.quantity;
-        const remaining = cell.maxUnits - cell.currentItems;
-        if (nextCellQty > remaining) {
-          setErrorMsg(
-            `${lineLabel}: Cell ${cell.code} only has capacity for ${remaining} more unit(s) (${cell.currentItems}/${cell.maxUnits}).`,
-          );
-          return;
-        }
-
-        cumulativeCellDelta.set(line.cellCoord, {
-          qty: nextCellQty,
-          identity: lineIdentity,
-          label: line.sku || line.productName,
-        });
+        // Deliveries land directly in Staging — no cell assignment required at intake
       } else {
         if (!line.productId) {
           setErrorMsg(`${lineLabel}: Select an in-stock warehouse item to remove.`);
@@ -883,7 +835,7 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
     let lastResult: AdjustInventoryResultDto | null = null;
     try {
       for (const line of pendingLines) {
-        const hasCell = Boolean(line.cellCoord && line.cellCoord !== 'NONE');
+        const hasCell = Boolean(orderAction !== 'INSERT' && line.cellCoord && line.cellCoord !== 'NONE');
         const [rStr, cStr] = hasCell ? line.cellCoord.split(':') : ['', ''];
 
         const result = await warehouseApiService.adjustInventory(warehouse.id, {
@@ -947,15 +899,6 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
     }
 
     if (action === 'INSERT') {
-      if (selectedCell) {
-        const remaining = selectedCell.maxUnits - selectedCell.currentItems;
-        if (quantity > remaining) {
-          setErrorMsg(
-            `Cell ${selectedCell.code} only has space for ${remaining} more unit(s) (${selectedCell.currentItems}/${selectedCell.maxUnits}).`,
-          );
-          return;
-        }
-      }
       if (isCreatingNewSku) {
         if (!newSku.trim() || !newName.trim()) {
           setErrorMsg('Enter both a SKU code and a product name for the new item.');
@@ -999,8 +942,8 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
               }
             : undefined,
         quantity,
-        row: selectedCell ? selectedCell.row : undefined,
-        col: selectedCell ? selectedCell.col : undefined,
+        row: action === 'INSERT' ? undefined : (selectedCell ? selectedCell.row : undefined),
+        col: action === 'INSERT' ? undefined : (selectedCell ? selectedCell.col : undefined),
         partnerName: partnerName.trim() || undefined,
       });
 
@@ -1491,41 +1434,54 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
                                 />
                               </div>
 
-                              {/* Cell Selector */}
+                              {/* Destination / Cell Selector */}
                               <div className="field-row">
-                                <label>
-                                  {orderAction === 'INSERT' ? 'Target cell' : 'Pull from cell'}
-                                </label>
-                                <select
-                                  className="select-control mono"
-                                  value={line.cellCoord}
-                                  onChange={(e) =>
-                                    updateOrderLine(line.id, { cellCoord: e.target.value })
-                                  }
-                                  disabled={isSubmitting || line.applied}
-                                >
-                                  {orderAction === 'INSERT' && !line.cellCoord && (
-                                    <option value="">-- Select cell --</option>
-                                  )}
-                                  {orderAction === 'REMOVE' && (
+                                <label>{orderAction === 'INSERT' ? 'Destination' : 'Pull from cell'}</label>
+                                {orderAction === 'INSERT' ? (
+                                  <div
+                                    style={{
+                                      padding: '8px 12px',
+                                      borderRadius: '6px',
+                                      background: 'rgba(245, 158, 11, 0.12)',
+                                      color: '#fbbf24',
+                                      fontSize: '0.85rem',
+                                      fontWeight: 600,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px',
+                                      height: '38px',
+                                    }}
+                                  >
+                                    <Clock size={15} />
+                                    <span>Staging Area (Putaway later)</span>
+                                  </div>
+                                ) : (
+                                  <select
+                                    className="select-control mono"
+                                    value={line.cellCoord}
+                                    onChange={(e) =>
+                                      updateOrderLine(line.id, { cellCoord: e.target.value })
+                                    }
+                                    disabled={isSubmitting || line.applied}
+                                  >
                                     <option value="NONE">
                                       Inventory ledger only (skip cell)
                                     </option>
-                                  )}
-                                  {locations.map((loc) => {
-                                    const selectable = isCellSelectableForOrderLine(loc, line);
-                                    return (
-                                      <option
-                                        key={loc.id}
-                                        value={`${loc.row}:${loc.col}`}
-                                        disabled={!selectable}
-                                      >
-                                        {loc.code} ({loc.currentItems}/{loc.maxUnits}
-                                        {loc.product ? ` · ${loc.product.sku}` : ' · Open'})
-                                      </option>
-                                    );
-                                  })}
-                                </select>
+                                    {locations.map((loc) => {
+                                      const selectable = isCellSelectableForOrderLine(loc, line);
+                                      return (
+                                        <option
+                                          key={loc.id}
+                                          value={`${loc.row}:${loc.col}`}
+                                          disabled={!selectable}
+                                        >
+                                          {loc.code} ({loc.currentItems}/{loc.maxUnits}
+                                          {loc.product ? ` · ${loc.product.sku}` : ' · Open'})
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                )}
                               </div>
                             </div>
 
@@ -1806,117 +1762,139 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
               )}
             </div>
 
-            {/* STEP 2: STORAGE CELL [ROW, COL] */}
-            <div className="modal-section">
-              <div className="modal-section-head">
-                <span className="modal-step-label">
-                  {action === 'INSERT'
-                    ? '2. Choose target storage cell'
-                    : '2. Choose cell to pull from'}
-                </span>
-                <select
-                  aria-label="Storage cell selector"
-                  className="select-control mono"
-                  value={selectedCellCoord}
-                  onChange={(e) => setSelectedCellCoord(e.target.value)}
-                >
-                  {action === 'INSERT' && (
-                    <option value="STAGING">⏳ Send to Staging Area (Pending Putaway)</option>
-                  )}
-                  {action === 'REMOVE' && (
+            {/* STEP 2: STAGING DESTINATION (INSERT) OR CELL SELECTOR (REMOVE) */}
+            {action === 'INSERT' ? (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '14px 16px',
+                  borderRadius: '10px',
+                  background: 'rgba(245, 158, 11, 0.1)',
+                  border: '1px solid rgba(245, 158, 11, 0.25)',
+                  color: '#fbbf24',
+                  fontSize: '0.875rem',
+                  marginBlock: '14px',
+                }}
+              >
+                <Clock size={22} style={{ flexShrink: 0 }} />
+                <div>
+                  <strong>Receiving Destination: Staging Area</strong>
+                  <div
+                    style={{
+                      color: 'var(--text-muted, #94a3b8)',
+                      marginTop: '3px',
+                      fontSize: '0.8rem',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    Deliveries land in Staging with no rack cell assigned. Warehouse staff will unpack
+                    and shelve items by scanning cell QR codes.
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* CELL SELECTOR FOR REMOVE ONLY */
+              <div className="modal-section">
+                <div className="modal-section-head">
+                  <span className="modal-step-label">2. Choose cell to pull from</span>
+                  <select
+                    aria-label="Storage cell selector"
+                    className="select-control mono"
+                    value={selectedCellCoord}
+                    onChange={(e) => setSelectedCellCoord(e.target.value)}
+                  >
                     <option value="NONE">Inventory ledger only (skip cell counter)</option>
-                  )}
-                  {locations.map((loc) => {
-                    const isDisabled = !isCellValidForSelection(loc);
-                    return (
-                      <option
-                        key={loc.id}
-                        value={`${loc.row}:${loc.col}`}
-                        disabled={isDisabled}
-                      >
-                        {loc.code} [{loc.row},{loc.col}] — {loc.currentItems}/{loc.maxUnits}
-                        {loc.product ? ` (${loc.product.sku})` : ' (Open)'}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              {/* Compact Visual 2D Matrix Picker */}
-              <div className="modal-matrix-picker">
-                <div
-                  className="warehouse-2d-matrix modal-compact-grid"
-                  style={{
-                    gridTemplateColumns: `24px repeat(${warehouse.cols}, minmax(22px, 1fr))`,
-                  }}
-                >
-                  <div className="matrix-corner-label" />
-                  {Array.from({ length: warehouse.cols }, (_, cIdx) => (
-                    <div key={`mcol-${cIdx}`} className="matrix-col-header">
-                      {String(cIdx + 1).padStart(2, '0')}
-                    </div>
-                  ))}
-
-                  {matrixRows.map((rowCells, rIdx) => (
-                    <React.Fragment key={`mrow-${rIdx}`}>
-                      <div className="matrix-row-header">{String.fromCharCode(65 + rIdx)}</div>
-                      {rowCells.map((cell) => {
-                        if (!cell) return null;
-                        const coord = `${cell.row}:${cell.col}`;
-                        const isSelected = selectedCellCoord === coord;
-                        const isSelectable = isCellValidForSelection(cell);
-
-                        return (
-                          <button
-                            key={cell.id}
-                            type="button"
-                            disabled={!isSelectable}
-                            onClick={() => setSelectedCellCoord(coord)}
-                            className={`matrix-cell-btn modal-cell ${
-                              cell.isOccupied ? 'occupied' : 'open'
-                            } ${isSelected ? 'selected' : ''}`}
-                            title={`${cell.code}: ${cell.currentItems}/${cell.maxUnits}${
-                              cell.product
-                                ? ` · ${cell.product.sku} (${cell.product.productName})`
-                                : ' · Open cell'
-                            }`}
-                          >
-                            {cell.currentItems}
-                          </button>
-                        );
-                      })}
-                    </React.Fragment>
-                  ))}
+                    {locations.map((loc) => {
+                      const isDisabled = !isCellValidForSelection(loc);
+                      return (
+                        <option
+                          key={loc.id}
+                          value={`${loc.row}:${loc.col}`}
+                          disabled={isDisabled}
+                        >
+                          {loc.code} [{loc.row},{loc.col}] — {loc.currentItems}/{loc.maxUnits}
+                          {loc.product ? ` (${loc.product.sku})` : ' (Open)'}
+                        </option>
+                      );
+                    })}
+                  </select>
                 </div>
-              </div>
 
-              {selectedCell && (
-                <div className="cell-impact-preview tabular">
-                  <span>
-                    Selected cell <strong>{selectedCell.code}</strong> [{selectedCell.row},{' '}
-                    {selectedCell.col}]
-                  </span>
-                  <span className="mono">
-                    {selectedCell.currentItems} →{' '}
-                    <strong>
-                      {action === 'INSERT'
-                        ? Math.min(
-                            selectedCell.maxUnits,
-                            selectedCell.currentItems + (quantity || 0),
-                          )
-                        : Math.max(0, selectedCell.currentItems - (quantity || 0))}
-                    </strong>{' '}
-                    / {selectedCell.maxUnits} items
-                  </span>
+                {/* Compact Visual 2D Matrix Picker */}
+                <div className="modal-matrix-picker">
+                  <div
+                    className="warehouse-2d-matrix modal-compact-grid"
+                    style={{
+                      gridTemplateColumns: `24px repeat(${warehouse.cols}, minmax(22px, 1fr))`,
+                    }}
+                  >
+                    <div className="matrix-corner-label" />
+                    {Array.from({ length: warehouse.cols }, (_, cIdx) => (
+                      <div key={`mcol-${cIdx}`} className="matrix-col-header">
+                        {String(cIdx + 1).padStart(2, '0')}
+                      </div>
+                    ))}
+
+                    {matrixRows.map((rowCells, rIdx) => (
+                      <React.Fragment key={`mrow-${rIdx}`}>
+                        <div className="matrix-row-header">{String.fromCharCode(65 + rIdx)}</div>
+                        {rowCells.map((cell) => {
+                          if (!cell) return null;
+                          const coord = `${cell.row}:${cell.col}`;
+                          const isSelected = selectedCellCoord === coord;
+                          const isSelectable = isCellValidForSelection(cell);
+
+                          return (
+                            <button
+                              key={cell.id}
+                              type="button"
+                              disabled={!isSelectable}
+                              onClick={() => setSelectedCellCoord(coord)}
+                              className={`matrix-cell-btn modal-cell ${
+                                cell.isOccupied ? 'occupied' : 'open'
+                              } ${isSelected ? 'selected' : ''}`}
+                              title={`${cell.code}: ${cell.currentItems}/${cell.maxUnits}${
+                                cell.product
+                                  ? ` · ${cell.product.sku} (${cell.product.productName})`
+                                  : ' · Open cell'
+                              }`}
+                            >
+                              {cell.currentItems}
+                            </button>
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
+                  </div>
                 </div>
-              )}
-            </div>
 
-            {/* STEP 3: QUANTITY & PARTNER */}
+                {selectedCell && (
+                  <div className="cell-impact-preview tabular">
+                    <span>
+                      Selected cell <strong>{selectedCell.code}</strong> [{selectedCell.row},{' '}
+                      {selectedCell.col}]
+                    </span>
+                    <span className="mono">
+                      {selectedCell.currentItems} →{' '}
+                      <strong>
+                        {Math.max(0, selectedCell.currentItems - (quantity || 0))}
+                      </strong>{' '}
+                      / {selectedCell.maxUnits} items
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* STEP 2 or 3: QUANTITY & PARTNER */}
             <div className="modal-section modal-bottom-grid">
               <div className="field-row">
                 <label htmlFor="modal-qty-input">
-                  Quantity ({maxAllowedQuantity} max for selection)
+                  {action === 'INSERT'
+                    ? '2. Received Delivery Quantity'
+                    : `3. Quantity (${maxAllowedQuantity} max for selection)`}
                 </label>
                 <div className="qty-input-cluster">
                   <input
@@ -1930,12 +1908,12 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
                     required
                   />
                   <div className="qty-presets">
-                    {[1, 5, 10, 25].map((preset) => (
+                    {[1, 5, 10, 25, 50, 100].map((preset) => (
                       <button
                         key={preset}
                         type="button"
                         className="counter-step-btn"
-                        disabled={maxAllowedQuantity > 0 && preset > maxAllowedQuantity}
+                        disabled={action === 'REMOVE' && maxAllowedQuantity > 0 && preset > maxAllowedQuantity}
                         onClick={() => setQuantity(preset)}
                       >
                         {preset}
@@ -1957,14 +1935,14 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
               <div className="field-row">
                 <label htmlFor="modal-partner-input">
                   {action === 'INSERT'
-                    ? 'Supplier / source (optional)'
-                    : 'Destination / note (optional)'}
+                    ? 'Supplier Name / Delivery PO (optional)'
+                    : 'Customer / Destination (optional)'}
                 </label>
                 <input
                   id="modal-partner-input"
                   type="text"
                   placeholder={
-                    action === 'INSERT' ? 'e.g. Zebra EMEA Supply' : 'e.g. Order pick #508'
+                    action === 'INSERT' ? 'e.g. Apex Global Supplies Ltd.' : 'e.g. Order pick #508'
                   }
                   value={partnerName}
                   onChange={(e) => setPartnerName(e.target.value)}
