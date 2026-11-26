@@ -345,7 +345,15 @@ export class WarehouseAiContext {
               const cells = this.getCellsForProduct(i.productId)
                 .map((c) => `${c.code} (${c.currentItems}/${c.maxUnits})`)
                 .join(', ');
-              return `- ${i.sku}: ${i.productName} | Total warehouse stock: ${i.quantity} ${i.unitOfMeasure} | Category: ${i.category} | Stored in cells: ${cells || 'None assigned'}`;
+              const inRack =
+                i.inRackQuantity ??
+                this.getCellsForProduct(i.productId).reduce((s, c) => s + c.currentItems, 0);
+              const staged = i.stagedQuantity ?? Math.max(0, i.quantity - inRack);
+              const stagedNote =
+                staged > 0
+                  ? ` | ⏳ PENDING PUTAWAY (STAGING): ${staged} ${i.unitOfMeasure} waiting to be unpacked and stored into cells`
+                  : '';
+              return `- ${i.sku}: ${i.productName} | Total warehouse stock: ${i.quantity} ${i.unitOfMeasure} (${inRack} in-rack, ${staged} pending in staging) | Category: ${i.category} | Stored in cells: ${cells || 'None assigned'}${stagedNote}`;
             })
             .join('\n')
         : '- (No SKU inventory currently stored in this warehouse)';
@@ -389,6 +397,10 @@ export class WarehouseAiContext {
       `5. DIRECT TOOL EXECUTION: When the operator's intent is clearly to add, receive, pick, or remove inventory, call insert_inventory_item or remove_inventory_item directly. Don't make the operator type technical commands.`,
       `6. CONVERSATIONAL TONE & LANGUAGE: Reply in the same language the user speaks (English, Hebrew, etc.). Keep messages concise, friendly, and operationally focused (use bold text for SKUs, quantities, and cell codes like **A-01**).`,
       `7. GROUNDING: Answer strictly from the live warehouse data below. If asked about out-of-scope external information (like item retail prices, employee salaries, or weather), state that it is not recorded in warehouse data.`,
+      `8. TWO-STAGE INBOUND & PENDING STAGING STOCK:`,
+      `   - Inbound shipments first arrive in the "Pending Putaway (Staging)" area without an assigned cell. Warehouse operators subsequently unpack and put them into rack cells.`,
+      `   - When asked about stock levels for any product, ALWAYS explicitly state both in-rack quantities and pending putaway/staging quantities (e.g. "We have 750 units total: 0 in rack cells, and 750 units in Staging waiting to be put away into cells").`,
+      `   - When asked about the "pending list", "staging", "items waiting to be stored", or "supply waiting to unwrap", list all products that have units in staging waiting for putaway.`,
       `Active Warehouse: ${wh.name} (${wh.code}) in ${wh.city}, ${wh.address}.`,
       `Matrix Dimensions: ${wh.rows} rows x ${wh.cols} columns (${wh.totalCapacity} cells total, max 100 items per cell, strictly 1 product type per cell).`,
       `Live Occupancy: ${wh.occupancyPercentage}% full (${wh.usedCapacity} occupied cells, ${wh.availableCapacity} empty cells, ${wh.totalItemsCounter} total items in cells). Status: ${wh.capacityStatus}.`,

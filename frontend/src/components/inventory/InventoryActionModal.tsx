@@ -147,10 +147,8 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
           if (catalogData.length === 0) {
             setIsCreatingNewSku(true);
           }
-          const firstOpen =
-            locationsData.find((c) => !c.isOccupied) ??
-            locationsData.find((c) => c.currentItems < c.maxUnits);
-          setSelectedCellCoord(firstOpen ? `${firstOpen.row}:${firstOpen.col}` : '');
+          // Receiving deliveries lands in Staging area without pre-selecting a rack cell
+          setSelectedCellCoord('');
         } else {
           const defaultRemoveProd = initialProductId || inventoryItems[0]?.productId || '';
           setSelectedProductId(defaultRemoveProd);
@@ -190,10 +188,7 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
       if (!selectedProductId && catalog.length > 0) {
         setSelectedProductId(catalog[0].id);
       }
-      const firstOpen =
-        locations.find((c) => !c.isOccupied) ??
-        locations.find((c) => c.currentItems < c.maxUnits);
-      setSelectedCellCoord(firstOpen ? `${firstOpen.row}:${firstOpen.col}` : '');
+      setSelectedCellCoord('');
     } else {
       setIsCreatingNewSku(false);
       const validInStock = inventoryItems.some((i) => i.productId === selectedProductId);
@@ -1035,7 +1030,7 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
               onClick={() => handleModeSwitch('INSERT')}
               disabled={isSubmitting || isAnalyzingImage}
             >
-              Insert item into cell
+              Receive delivery (Staging)
             </button>
             <button
               type="button"
@@ -1605,7 +1600,7 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
                       {isSubmitting
                         ? 'Applying order...'
                         : orderAction === 'INSERT'
-                          ? `Confirm & Insert ${pendingOrderLinesCount} item(s) (${totalOrderUnits} units)`
+                          ? `Confirm & Receive ${pendingOrderLinesCount} item(s) (${totalOrderUnits} units) into Staging`
                           : `Confirm & Remove ${pendingOrderLinesCount} item(s) (${totalOrderUnits} units)`}
                     </button>
                   </div>
@@ -1622,7 +1617,7 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
                 className="primary-action-btn"
                 onClick={() => handleModeSwitch('INSERT')}
               >
-                Switch to insert item
+                Switch to receive delivery
               </button>
               <button
                 type="button"
@@ -1969,7 +1964,7 @@ export const InventoryActionModal: React.FC<InventoryActionModalProps> = ({
                 {isSubmitting
                   ? 'Saving...'
                   : action === 'INSERT'
-                    ? `Insert ${quantity} into ${selectedCell?.code ?? 'cell'}`
+                    ? `Receive ${quantity} into Staging`
                     : `Remove ${quantity} from inventory`}
               </button>
             </div>

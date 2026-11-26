@@ -5,19 +5,16 @@ import { WarehouseViewModel } from '../models/WarehouseViewModel';
 import { warehouseApiService } from '../services/WarehouseApiService';
 
 export const DashboardPage: React.FC = () => {
-  const { selectedWarehouse, refreshWarehouses, dataRevision } = useWarehouse();
+  const { selectedWarehouse, dataRevision } = useWarehouse();
   const [dashboard, setDashboard] = useState<WarehouseDashboardDto | null>(null);
   const [selectedCell, setSelectedCell] = useState<StorageLocationDto | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [isAdjusting, setIsAdjusting] = useState<boolean>(false);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedWarehouse) return;
 
     let cancelled = false;
     setIsLoading(true);
-    setActionError(null);
 
     warehouseApiService
       .fetchDashboard(selectedWarehouse.id)
@@ -41,56 +38,6 @@ export const DashboardPage: React.FC = () => {
       cancelled = true;
     };
   }, [selectedWarehouse?.id, dataRevision]);
-
-  const handleAdjustItems = async (delta: number) => {
-    if (!dashboard || !selectedCell || isAdjusting) return;
-    setIsAdjusting(true);
-    setActionError(null);
-
-    try {
-      const result = await warehouseApiService.adjustMatrixCell(
-        dashboard.warehouse.id,
-        selectedCell.row,
-        selectedCell.col,
-        delta,
-      );
-
-      // Update local 2D matrix & row breakdown immediately
-      const nextMatrix = dashboard.matrix.map((rowCells, rIdx) =>
-        rowCells.map((c, cIdx) =>
-          rIdx === result.cell.row && cIdx === result.cell.col ? result.cell : c,
-        ),
-      );
-
-      const nextRowBreakdown = nextMatrix.map((rowCells, rowIdx) => {
-        const totalPlaces = rowCells.length;
-        const usedPlaces = rowCells.filter((c) => c.isOccupied).length;
-        const totalItemsInRow = rowCells.reduce((sum, c) => sum + c.currentItems, 0);
-        return {
-          rowLabel: `Row ${String.fromCharCode(65 + rowIdx)}`,
-          rowIndex: rowIdx,
-          totalPlaces,
-          usedPlaces,
-          totalItemsInRow,
-          occupancyPercentage:
-            totalPlaces === 0 ? 0 : Math.round((usedPlaces / totalPlaces) * 1000) / 10,
-        };
-      });
-
-      setDashboard({
-        ...dashboard,
-        warehouse: result.warehouse,
-        matrix: nextMatrix,
-        rowBreakdown: nextRowBreakdown,
-      });
-      setSelectedCell(result.cell);
-      refreshWarehouses();
-    } catch (err) {
-      setActionError((err as Error).message);
-    } finally {
-      setIsAdjusting(false);
-    }
-  };
 
   if (!selectedWarehouse || (isLoading && !dashboard)) {
     return <div className="state-notice">Loading warehouse 2D matrix and capacity data...</div>;
@@ -216,7 +163,6 @@ export const DashboardPage: React.FC = () => {
                         }`}
                         onClick={() => {
                           setSelectedCell(cell);
-                          setActionError(null);
                         }}
                         title={`[${cell.row}, ${cell.col}] ${cell.code}: ${cell.currentItems}/${cell.maxUnits} items`}
                       >
@@ -229,86 +175,30 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Interactive Cell Counter Bar */}
+          {/* Interactive Cell Inspector Bar */}
           <div className="bay-inspector-strip">
             {selectedCell ? (
-              <>
-                <div className="inspector-left-group">
-                  <span className="inspector-slot">
-                    Cell [{selectedCell.row}, {selectedCell.col}] ({selectedCell.code})
-                  </span>
-                  <span className="inspector-detail tabular">
-                    Counter: <strong>{selectedCell.currentItems}</strong> / {selectedCell.maxUnits}{' '}
-                    items (
-                    {selectedCell.product
-                      ? `${selectedCell.product.sku} · ${selectedCell.product.productName}`
-                      : selectedCell.isOccupied
-                        ? 'occupied'
-                        : 'empty'}
-                    )
-                  </span>
-                </div>
-                <div className="counter-actions">
-                  <button
-                    type="button"
-                    className="counter-step-btn"
-                    disabled={isAdjusting || selectedCell.currentItems < 5}
-                    onClick={() => handleAdjustItems(-5)}
-                  >
-                    -5
-                  </button>
-                  <button
-                    type="button"
-                    className="counter-step-btn"
-                    disabled={isAdjusting || selectedCell.currentItems === 0}
-                    onClick={() => handleAdjustItems(-1)}
-                  >
-                    -1 item
-                  </button>
-                  <button
-                    type="button"
-                    className="counter-step-btn add"
-                    disabled={
-                      isAdjusting ||
-                      !selectedCell.product ||
-                      selectedCell.currentItems >= selectedCell.maxUnits
-                    }
-                    title={
-                      !selectedCell.product
-                        ? 'Empty cell — assign a SKU via Inventory -> Manage Stock first'
-                        : undefined
-                    }
-                    onClick={() => handleAdjustItems(+1)}
-                  >
-                    +1 item
-                  </button>
-                  <button
-                    type="button"
-                    className="counter-step-btn add"
-                    disabled={
-                      isAdjusting ||
-                      !selectedCell.product ||
-                      selectedCell.currentItems + 5 > selectedCell.maxUnits
-                    }
-                    title={
-                      !selectedCell.product
-                        ? 'Empty cell — assign a SKU via Inventory -> Manage Stock first'
-                        : undefined
-                    }
-                    onClick={() => handleAdjustItems(+5)}
-                  >
-                    +5
-                  </button>
-                </div>
-              </>
+              <div className="inspector-left-group">
+                <span className="inspector-slot">
+                  Cell [{selectedCell.row}, {selectedCell.col}] ({selectedCell.code})
+                </span>
+                <span className="inspector-detail tabular">
+                  Occupancy: <strong>{selectedCell.currentItems}</strong> / {selectedCell.maxUnits}{' '}
+                  items (
+                  {selectedCell.product
+                    ? `${selectedCell.product.sku} · ${selectedCell.product.productName}`
+                    : selectedCell.isOccupied
+                      ? 'occupied'
+                      : 'empty cell'}
+                  )
+                </span>
+              </div>
             ) : (
               <span className="inspector-detail">
-                Select any [row, col] matrix cell to adjust its item counter
+                Select any [row, col] matrix cell to inspect occupancy and stored SKU
               </span>
             )}
           </div>
-
-          {actionError && <div className="inline-error">{actionError}</div>}
         </div>
       </section>
 

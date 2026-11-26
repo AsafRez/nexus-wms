@@ -203,6 +203,54 @@ export class LocalWmsCopilotProvider extends AiCopilotProvider {
       };
     }
 
+    // 4b. Pending Putaway / Staging Queue Query (English & Hebrew)
+    const isPendingStagingQuery =
+      /\b(pending|staged|staging|unwarp|unwrap|waiting|shelve|shelving|putaway)\b/i.test(lower) ||
+      /(ממתין|ממתינים|המתנה|סטייג|פריקה|סידור|בקבלה|מחכים|לסדר)/.test(text);
+
+    if (isPendingStagingQuery) {
+      const stagedItems = ctx.inventory.filter((i) => {
+        const inRack =
+          i.inRackQuantity ??
+          ctx.getCellsForProduct(i.productId).reduce((sum, c) => sum + c.currentItems, 0);
+        const staged = i.stagedQuantity ?? Math.max(0, i.quantity - inRack);
+        return staged > 0;
+      });
+
+      if (stagedItems.length === 0) {
+        return {
+          reply: `There are currently 0 items in the Pending Putaway (Staging) list for ${wh.name}. All received deliveries have been stored into rack cells.`,
+          provider: 'LOCAL_WMS_ENGINE',
+          executedActions,
+        };
+      }
+
+      const totalStagedUnits = stagedItems.reduce((acc, i) => {
+        const inRack =
+          i.inRackQuantity ??
+          ctx.getCellsForProduct(i.productId).reduce((sum, c) => sum + c.currentItems, 0);
+        return acc + (i.stagedQuantity ?? Math.max(0, i.quantity - inRack));
+      }, 0);
+
+      const lines = stagedItems.map((i) => {
+        const inRack =
+          i.inRackQuantity ??
+          ctx.getCellsForProduct(i.productId).reduce((sum, c) => sum + c.currentItems, 0);
+        const staged = i.stagedQuantity ?? Math.max(0, i.quantity - inRack);
+        return `• **${i.productName}** (${i.sku}): ${staged.toLocaleString()} ${i.unitOfMeasure} waiting in Staging (${inRack.toLocaleString()} already in rack cells)`;
+      });
+
+      return {
+        reply: [
+          `Pending Putaway list in ${wh.name} (${stagedItems.length} SKU(s), ${totalStagedUnits.toLocaleString()} total units waiting to be unpacked and shelved):`,
+          ...lines,
+          `To shelve these items, go to Inventory -> "Pending Putaway (Staging)" tab, or scan a rack cell QR code.`,
+        ].join('\n'),
+        provider: 'LOCAL_WMS_ENGINE',
+        executedActions,
+      };
+    }
+
     // 5. Product / Item Lookup & Variant Disambiguation (e.g. "cables", "10 meter cable", "sensors")
     const allInvMatches = ctx.matchAllInventoryItems(text);
     const allCatMatches = allInvMatches.length > 0 ? [] : ctx.matchAllCatalogProducts(text);
@@ -245,17 +293,30 @@ export class LocalWmsCopilotProvider extends AiCopilotProvider {
 
     if (matchedInv) {
       const holdingCells = ctx.getCellsForProduct(matchedInv.productId);
+      const inRack =
+        matchedInv.inRackQuantity ??
+        holdingCells.reduce((sum, c) => sum + c.currentItems, 0);
+      const staged = matchedInv.stagedQuantity ?? Math.max(0, matchedInv.quantity - inRack);
       const cellSummary =
         holdingCells.length > 0
           ? holdingCells.map((c) => `${c.code} (${c.currentItems} units)`).join(', ')
-          : 'no matrix cells currently assigned';
+          : 'no matrix rack cells currently assigned';
+
+      const lines = [
+        `${matchedInv.productName} (${matchedInv.sku}):`,
+        `• Total warehouse stock: ${matchedInv.quantity.toLocaleString()} ${matchedInv.unitOfMeasure} (${matchedInv.category})`,
+        `• In-rack storage: ${inRack.toLocaleString()} ${matchedInv.unitOfMeasure} (stored in ${holdingCells.length} cell(s) in ${wh.code}: ${cellSummary})`,
+      ];
+      if (staged > 0) {
+        lines.push(
+          `• ⏳ Pending Putaway (Staging): ${staged.toLocaleString()} ${matchedInv.unitOfMeasure} waiting to be unpacked and stored in rack cells`,
+        );
+      } else {
+        lines.push(`• Pending Putaway (Staging): 0 units (all stock is stored in rack cells)`);
+      }
 
       return {
-        reply: [
-          `${matchedInv.productName} (${matchedInv.sku}):`,
-          `• Warehouse stock: ${matchedInv.quantity.toLocaleString()} ${matchedInv.unitOfMeasure} (${matchedInv.category})`,
-          `• Stored in ${holdingCells.length} cell(s) in ${wh.code}: ${cellSummary}`,
-        ].join('\n'),
+        reply: lines.join('\n'),
         provider: 'LOCAL_WMS_ENGINE',
         executedActions,
       };
@@ -291,7 +352,16 @@ export class LocalWmsCopilotProvider extends AiCopilotProvider {
 
       const lines = ctx.inventory.map((i) => {
         const cellCodes = ctx.getCellsForProduct(i.productId).map((c) => c.code);
-        return `• ${i.sku} — ${i.productName}: ${i.quantity.toLocaleString()} ${i.unitOfMeasure} (cells: ${cellCodes.slice(0, 5).join(', ')}${cellCodes.length > 5 ? ` +${cellCodes.length - 5} more` : ''})`;
+        const inRack =
+          i.inRackQuantity ??
+          ctx.getCellsForProduct(i.productId).reduce((sum, c) => sum + c.currentItems, 0);
+        const staged = i.stagedQuantity ?? Math.max(0, i.quantity - inRack);
+        const stagedSuffix = staged > 0 ? ` [⏳ ${staged} staged / pending putaway]` : '';
+        const cellsFormatted =
+          cellCodes.length > 0
+            ? `${cellCodes.slice(0, 5).join(', ')}${cellCodes.length > 5 ? ` +${cellCodes.length - 5} more` : ''}`
+            : 'none';
+        return `• ${i.sku} — ${i.productName}: ${i.quantity.toLocaleString()} ${i.unitOfMeasure} (${inRack} in cells: ${cellsFormatted})${stagedSuffix}`;
       });
       return {
         reply: [

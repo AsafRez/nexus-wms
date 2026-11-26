@@ -6,12 +6,11 @@ import { useWarehouse } from '../context/WarehouseContext';
 import { warehouseApiService } from '../services/WarehouseApiService';
 
 export const LocationsPage: React.FC = () => {
-  const { selectedWarehouse, refreshWarehouses, dataRevision } = useWarehouse();
+  const { selectedWarehouse, dataRevision } = useWarehouse();
   const [locations, setLocations] = useState<StorageLocationDto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'OCCUPIED' | 'AVAILABLE'>('ALL');
   const [query, setQuery] = useState<string>('');
-  const [busyCellId, setBusyCellId] = useState<string | null>(null);
   const [selectedQrCell, setSelectedQrCell] = useState<StorageLocationDto | null>(null);
 
   useEffect(() => {
@@ -32,23 +31,6 @@ export const LocationsPage: React.FC = () => {
       cancelled = true;
     };
   }, [selectedWarehouse?.id, dataRevision]);
-
-  const handleCellStep = async (loc: StorageLocationDto, delta: number) => {
-    if (!selectedWarehouse || busyCellId) return;
-    setBusyCellId(loc.id);
-    try {
-      const res = await warehouseApiService.adjustMatrixCell(
-        selectedWarehouse.id,
-        loc.row,
-        loc.col,
-        delta,
-      );
-      setLocations((prev) => prev.map((c) => (c.id === res.cell.id ? res.cell : c)));
-      refreshWarehouses();
-    } finally {
-      setBusyCellId(null);
-    }
-  };
 
   const filtered = useMemo(() => {
     return locations.filter((loc) => {
@@ -166,30 +148,7 @@ export const LocationsPage: React.FC = () => {
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
                 >
                   <QrCode size={13} />
-                  <span>QR</span>
-                </button>
-                <button
-                  type="button"
-                  className="counter-step-btn"
-                  disabled={busyCellId === loc.id || loc.currentItems === 0}
-                  onClick={() => handleCellStep(loc, -1)}
-                >
-                  -1
-                </button>
-                <button
-                  type="button"
-                  className="counter-step-btn add"
-                  disabled={
-                    busyCellId === loc.id || !loc.product || loc.currentItems >= loc.maxUnits
-                  }
-                  title={
-                    !loc.product
-                      ? 'Empty cell — assign a SKU via Inventory -> Put Away first'
-                      : undefined
-                  }
-                  onClick={() => handleCellStep(loc, +1)}
-                >
-                  +1
+                  <span>QR Code</span>
                 </button>
               </div>
             </div>

@@ -89,6 +89,8 @@ export interface InventoryItemSnapshot {
   category: string;
   unitOfMeasure: string;
   quantity: number;
+  inRackQuantity?: number;
+  stagedQuantity?: number;
   updatedAt: string;
 }
 

@@ -132,7 +132,7 @@ export const InventoryPage: React.FC = () => {
     warehouseApiService
       .fetchLocations(selectedWarehouse.id)
       .then((locs) => setLocations(locs))
-      .catch(() => {});
+      .catch(() => { });
 
     setLastOperationBanner(
       `Putaway completed: ${result.movement.quantity} × ${result.movement.productSku} placed into Cell ${result.cell.code}.`,
